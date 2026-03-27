@@ -82,6 +82,104 @@ cd /Users/shurikim/IdeaProjects/PokerProject
 
 애플리케이션 실행 시 기본 포트는 Spring Boot 기본값(8080) 기준입니다.
 
+### 아키텍처 구성도
+
+```mermaid
+flowchart TD
+  subgraph Frontend["Frontend (React + TS + Vite + Phaser)"]
+    F1["UI (App.tsx, styles)"]
+    F2["Phaser Table Scene"]
+    F3["API Layer (REST)"]
+    F4["WS Layer (STOMP/SockJS)"]
+  end
+
+  subgraph Backend["Backend (Spring Boot - com.example.holdem)"]
+    B1["Presentation"]
+    B2["Application"]
+    B3["Domain"]
+    B4["Infrastructure"]
+  end
+
+  subgraph Features["Feature Modules"]
+    T["table: table management/snapshot/broadcast"]
+    G["game: hand engine coordinator"]
+    C["chip: balances/transactions"]
+    H["history: hand/action history"]
+    L["lobby: table listing"]
+    A["auth/user: auth/profile"]
+  end
+
+  subgraph Engine["game.engine (순수 Java)"]
+    E1["Card/Deck"]
+    E2["ActionValidator"]
+    E3["PotCalculator"]
+    E4["HandEvaluator"]
+    E5["HandStateMachine"]
+  end
+
+  subgraph Stores["Storage"]
+    DB["RDB (H2 by default)"]
+    REDIS["Redis (optional: table/game live state)"]
+    CACHE["in-memory live state fallback"]
+  end
+
+  F3 -->|HTTP /api/*| B1
+  F4 -->|WebSocket /ws| B1
+  B1 --> B2
+  B2 --> B3
+  B2 --> B4
+
+  B2 --> T
+  B2 --> G
+  B2 --> C
+  B2 --> H
+  B2 --> L
+  B2 --> A
+
+  T --> B4
+  G --> Engine
+  G --> C
+  G --> H
+
+  E1 --> E2
+  E2 --> E3
+  E3 --> E4
+  E4 --> E5
+
+  B4 --> DB
+  B4 --> REDIS
+  B4 --> CACHE
+
+  B1 -->|broadcast snapshots| F2
+  B1 -->|broadcast action events| F2
+  B4 -->|metrics/events| Metrics["Prometheus Actuator"]
+```
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant U as Player/Client
+  participant UI as Frontend
+  participant WS as WebSocket Broker (/ws)
+  participant REST as REST API
+  participant TM as Table Service
+  participant GM as Game UseCase
+  participant EE as game.engine
+  participant DB as RDB/Redis
+
+  U->>UI: 좌석 선택/액션 입력
+  UI->>REST: create table / sit / start game
+  REST->>TM: TableCommandService
+  TM->>DB: table state 저장/조회
+  UI->>WS: /app/table.action / table.sit
+  WS->>GM: applyAction / sit
+  GM->>EE: validate/calc/evaluate
+  EE-->>GM: updated hand state
+  GM->>DB: table + hand state 갱신
+  GM-->>WS: publish ActionResult/TableSnapshot (/topic/tables/{tableId}{/actions})
+  WS-->>UI: 실시간 갱신(액션/상태/쇼다운)
+```
+
 ### 2) 프론트 실행
 
 ```bash
